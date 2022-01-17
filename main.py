@@ -17,12 +17,14 @@ print('Torch version : ', torch.__version__)
 # Opencv use several cpus by default for simple operation. Using only one allows loading data in parallel much faster
 cv2.setNumThreads(0)
 print('Nb of threads for OpenCV : ', cv2.getNumThreads())
-
+print(torch.cuda.is_available())
 #################################################################
 ###################### Model variables ##########################
 #################################################################
 class my_variables():
-    def __init__(self, task_path, size_data=[98, 120, 120], cuda=True, batch_size=15, workers=6, epochs=1000, lr=0.0001, nesterov=True, weight_decay=0.005, momentum=0.5):
+    #batch size change it to 15 epoch :1000
+    def __init__(self, task_path, size_data=[98, 120, 120], cuda=True, batch_size=15, workers=31, epochs=100, lr=0.0001, nesterov=True, weight_decay=0.005, momentum=0.5):
+
         self.cuda = cuda
         self.workers = workers
         self.batch_size = batch_size
@@ -37,7 +39,7 @@ class my_variables():
         make_path(self.model_name)
         if cuda:
             self.dtype = torch.cuda.FloatTensor
-            # os.environ[ 'CUDA_VISIBLE_DEVICES' ] = '0'
+            os.environ[ 'CUDA_VISIBLE_DEVICES' ] = '0'
         else:
             self.dtype = torch.FloatTensor
         self.log = setup_logger('model_log', os.path.join(self.model_name, 'model_log.log'))
@@ -55,7 +57,22 @@ class My_dataset(Dataset):
         return len(self.dataset_list)
 
     def __getitem__(self, idx):
-        rgb = get_data(self.dataset_list[idx].video_path, self.dataset_list[idx].begin, self.size_data)
+        v_path=self.dataset_list[idx].video_path
+        # print("path: ",v_path)
+        if "classificationTask\\train\\" in v_path:
+            v_path=self.dataset_list[idx].video_path.replace("classificationTask\\train\\","")
+        elif "classificationTask\\valid\\" in v_path:
+            v_path=self.dataset_list[idx].video_path.replace("classificationTask\\valid\\","")
+        elif "classificationTask\\test\\" in v_path:
+            v_path=self.dataset_list[idx].video_path.replace("classificationTask\\test\\","")
+        elif "detectionTask\\train\\" in v_path:
+            v_path=self.dataset_list[idx].video_path.replace("detectionTask\\train\\","")
+        elif "detectionTask\\valid\\" in v_path:
+            v_path=self.dataset_list[idx].video_path.replace("detectionTask\\valid\\","")
+        elif "detectionTask\\test\\" in v_path:
+            v_path=self.dataset_list[idx].video_path.replace("detectionTask\\test\\","")
+        # print("path2: ",v_path)
+        rgb = get_data(v_path, self.dataset_list[idx].begin, self.size_data)
         sample = {'rgb': torch.FloatTensor(rgb), 'label' : self.dataset_list[idx].move, 'my_stroke' : {'video_path':self.dataset_list[idx].video_path, 'begin':self.dataset_list[idx].begin, 'end':self.dataset_list[idx].end}}
         return sample
 
@@ -153,7 +170,7 @@ def train_model(model, args, train_loader, valid_loader):
         acc_train.append(acc_train_)
         loss_val.append(loss_val_)
         acc_val.append(acc_val_)
-    print_and_log('Max validation accuracy of %.2f done in %ds' % (max(acc_val), int(time.time()-begin_time)), log=args.log)
+        print_and_log('Max validation accuracy of %.2f done in %ds' % (max(acc_val), int(time.time()-begin_time)), log=args.log)
     make_train_figure(loss_train, loss_val, acc_val, acc_train, os.path.join(args.model_name, 'Train.png'))
     return 1
 
@@ -169,10 +186,10 @@ def train_epoch(epoch, args, model, data_loader, optimizer, criterion):
     for batch_idx, batch in enumerate(data_loader):
         # Get batch tensor
         rgb, label = batch['rgb'], batch['label']
-
+      
         rgb = Variable(rgb.type(args.dtype))
         label = Variable(label.type(args.dtype).long())
-
+ 
         optimizer.zero_grad()
         output = model(rgb)
         loss = criterion(output, label)
@@ -230,6 +247,7 @@ def store_xml_data(my_stroke_list, predicted, xml_files, list_of_strokes=None):
             stroke_xml.set('begin', str(begin))
             stroke_xml.set('end', str(end))
             stroke_xml.set('move', list_of_strokes[prediction_index])
+    return xml_files
 
 '''Save the predictions in xml files'''
 def save_xml_data(xml_files, path_xml_save):
@@ -254,7 +272,7 @@ def test_model(model, args, data_loader, list_of_strokes=None):
             rgb = Variable(rgb.type(args.dtype))
             output = model(rgb)
             _, predicted = torch.max(output.detach(), 1)
-            store_xml_data(my_stroke_list, predicted, xml_files, list_of_strokes)
+            xml_files=  store_xml_data(my_stroke_list, predicted, xml_files, list_of_strokes)
 
         progress_bar(N, N, 'Test done', 1, log=args.log)
         save_xml_data(xml_files, path_xml_save)
@@ -269,12 +287,16 @@ def make_work_tree(main_folder, source_folder, frame_width=320, extract=False):
     video_folder = os.path.join(source_folder, 'videos')
     detection_path = os.path.join(source_folder,'detectionTask')
     classification_path = os.path.join(source_folder,'classificationTask')
+    # print("Yes")  
     if extract:
         make_path(main_folder)
         make_path(data_path)
+        # print("Yes-2")
         video_list = [_file for _file in os.listdir(video_folder) if _file[-4:]=='.mp4' and os.path.isfile(os.path.join(video_folder, _file))]
         for idx, video in enumerate(video_list):
+            # print('Yes-3')
             save_frame_path = os.path.join(data_path, video[:-4])
+            # print(save_frame_path)
             make_path(save_frame_path)
             progress_bar(idx, len(video_list), 'Frame extraction')
             frame_extractor(os.path.join(video_folder, video), frame_width, save_frame_path)
@@ -344,7 +366,7 @@ def classification_task(main_folder, data_path, task_path):
 
     # Split
     train_strokes, valid_strokes, test_strokes = get_lists_annotations(task_path, data_path, list_of_strokes)
-
+    
     # Model variables
     args = my_variables('classificationTask')
     
@@ -356,7 +378,10 @@ def classification_task(main_folder, data_path, task_path):
 
     # Training process
     train_model(model, args, train_loader, valid_loader)
-    
+    try :
+        torch.save(model.state_dict(), os.path.join(os.getcwd(), 'model'))
+    except: 
+        print("model not save")
     # Test process 
     test_model(model, args, test_loader, list_of_strokes)
     return 1
@@ -392,13 +417,14 @@ def detection_task(main_folder, data_path, task_path):
 
 if __name__ == "__main__":
     # MediaEval Task source folder
-    source_folder = '../data'
+    source_folder = '/home/ttstroke_fyp/TTSTROKE-FYP/data'
     
     # Prepare tree and data - To call only once with extract set to True
-    main_folder, data_path, detection_path, classification_path = make_work_tree('.', source_folder, extract=False)
+    main_folder, data_path, detection_path, classification_path = make_work_tree('/home/ttstroke_fyp/TTSTROKE-FYP', 
+                                                                                 source_folder, extract=False)
 
     # Tasks
     classification_task(main_folder, data_path, classification_path)
-    detection_task(main_folder, data_path, detection_path)
+    # detection_task(main_folder, data_path, detection_path)
 
     print_and_log('All Done')

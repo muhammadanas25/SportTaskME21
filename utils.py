@@ -9,6 +9,10 @@ from shutil import rmtree
 import matplotlib
 import logging
 import cv2
+import subprocess
+import shlex
+import threading
+import struct
 # To be able to save figure using screen with matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -114,7 +118,7 @@ def get_terminal_size():
         if tuple_xy is None:
             tuple_xy = _get_terminal_size_tput()
             # needed for window's python in cygwin's xterm!
-    if current_os in ['Linux', 'Darwin'] or current_os.beginswith('CYGWIN'):
+    elif current_os in ['Linux', 'Darwin'] or current_os.beginswith('CYGWIN'):
         tuple_xy = _get_terminal_size_linux()
     if tuple_xy is None:
         tuple_xy = (80, 25)      # default value
@@ -233,15 +237,17 @@ def plot_confusion_matrix(cm, classes, path, normalize=False, cmap=plt.cm.Blues)
 
     fmt = '.2g' if normalize else 'd'
     thresh = .5
-    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-        if normalize:
-            plt.text(j, i, format(round(cm_txt[i, j]*100,2), fmt),
-                 horizontalalignment="center",
-                 color="white" if cm[i, j] > thresh else "black")
-        else:
-            plt.text(j, i, format(round(cm_txt[i, j],2), fmt),
-                 horizontalalignment="center",
-                 color="white" if cm[i, j] > thresh else "black")
+    # for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+    for i in range (cm.shape[0]):
+        for j in range (cm.shape[1]):
+            if normalize:
+                plt.text(j, i, format(round(cm_txt[i, j]*100,2), fmt),
+                    horizontalalignment="center",
+                    color="white" if cm[i, j] > thresh else "black")
+            else:
+                plt.text(j, i, format(round(cm_txt[i, j],2), fmt),
+                    horizontalalignment="center",
+                    color="white" if cm[i, j] > thresh else "black")
 
     plt.ylabel('True label', fontsize=14)
     plt.xlabel('Predicted label', fontsize=14)
